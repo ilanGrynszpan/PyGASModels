@@ -1,49 +1,117 @@
 from GASModels.component import Component
+from GASModels.distributions.distribution import Distribution
 import numpy as np
 
 
 class Dynamics:
 
-    components: list[Component] = []
+    distribution: Distribution = None
+    components: list[list[Component]] = []
     n: int = 0
+    time_varying_indices: list[int] = []
     fixed_params_indices: list[int] = []
     args: list[float] = []
 
     def __init__(
         self,
+        distribution: Distribution,
         n: int,
         components: list[Component],
+        time_varying_indices: list[int],
         fixed_params_indices: list[int],
         args: list[float],
     ):
+        self.distribution = distribution
         self.n = n
         self.components = components
+        self.time_varying_indices = time_varying_indices
         self.fixed_params_indices = fixed_params_indices
         self.args = args
 
-    def iterate(self):
+    def initialize(self, initial_values):
+        pass
 
-        component_dynamics = np.zeros((len(self.components), self.n))
-        score = 2.0
+    def update_components(self, score, hyperparameters, component_dynamics, t):
+        pass
 
-        for i in range(len(self.components)):
-            component_dynamics[i, 0] = self.args[i]
+    def fit_in_sample(self, params, y):
 
-        hyperparameters = []
-        iterable = self.fixed_params_indices + [len(self.components)]
-        for i in range(len(iterable) - 1):
-            temp = []
-            for j in range(iterable[i], iterable[i + 1]):
-                temp.append(self.args[j])
-            hyperparameters.append(temp)
+        km = params[0]
+        mu0 = params[1]
+        alpha = params[2]
 
-        for t in range(1, self.n):
-            for i, _ in enumerate(self.components):
-                component_dynamics[i, t] = self.components[i].include_dynamics(
-                    component_dynamics[i, t - 1], *hyperparameters[i], score
-                )
+        mu = mu0
 
-        return component_dynamics
+        fit_in_sample = np.zeros(self.n)
+
+        for t in range(self.n):
+
+            lambda_t = mu
+            fit_in_sample[t] = self.distribution.mean(alpha=alpha, lambda_=lambda_t)
+            mu += km * self.distribution.score(y[t], alpha=alpha, lambda_=lambda_t)[0]
+
+        return fit_in_sample
+
+    def objective(self, params, y):
+
+        km = params[0]
+        mu0 = params[1]
+        alpha = params[2]
+
+        mu_t = mu0
+        sum_logpdf = 0
+
+        for t, yt in enumerate(y):
+
+            lambda_t = mu_t
+            logpdf = self.distribution.logpdf(yt, alpha=alpha, lambda_=lambda_t)
+            score = self.distribution.score(yt, alpha=alpha, lambda_=lambda_t)[0]
+
+            mu_t += km * score
+
+            sum_logpdf += logpdf
+
+        return sum_logpdf
+
+        # component_dynamics = np.zeros((len(self.components), self.n))
+        # fixed_params = np.zeros(len(self.fixed_params_indices))
+
+        # pos_kappas = 0
+        # pos_fixed_params = len(self.components)
+        # pos_initial_values = pos_fixed_params + len(self.fixed_params_indices)
+
+        # for i in range(len(self.components)):
+        #     component_dynamics[i, 0] = self.args[i]
+
+        # for i in range(len(fixed_params)):
+
+        # component_dynamics = np.zeros((len(self.components), self.n))
+        # parameter = np.zeros(self.n)
+        # score = 2.0
+
+        # for i in range(len(self.components)):
+        #     component_dynamics[i, 0] = self.args[i]
+        #     parameter[0] += component_dynamics[i, 0]
+
+        # hyperparameters = []
+        # iterable = self.fixed_params_indices + [len(self.components)]
+        # for i in range(len(iterable) - 1):
+        #     temp = []
+        #     for j in range(iterable[i], iterable[i + 1]):
+        #         temp.append(self.args[j])
+        #     hyperparameters.append(temp)
+
+        # for t in range(1, self.n):
+
+        #     score = self.distribution.score(parameter[t - 1], **self.args)
+
+        #     for i, _ in enumerate(self.components):
+        #         component_dynamics[i, t] = self.components[i].include_dynamics(
+        #             component_dynamics[i, t - 1], *hyperparameters[i], score
+        #         )
+        #         parameter[t] += component_dynamics[i, t]
+
+        # return component_dynamics, parameter
 
     # components: list[Component] = []
     # n: int = 0

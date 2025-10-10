@@ -1,6 +1,11 @@
 class Component:
-    def __init__(self, name):
+
+    name: str = None
+    num_params: int = None
+
+    def __init__(self, name, num_params):
         self.name = name
+        self.num_params = num_params
 
     def __str__(self):
         return self.name
