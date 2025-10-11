@@ -6,7 +6,10 @@ import numpy as np
 class Dynamics:
 
     distribution: Distribution = None
-    components: list[list[Component]] = []
+    trend: list[int] = []
+    seasonality: list[int] = []
+    harmonics: int = 0
+    period: int = 0
     n: int = 0
     time_varying_indices: list[int] = []
     fixed_params_indices: list[int] = []
@@ -16,19 +19,25 @@ class Dynamics:
         self,
         distribution: Distribution,
         n: int,
-        components: list[Component],
+        trend: list[int],
+        seasonality: list[int],
+        harmonics: int,
+        period: int,
         time_varying_indices: list[int],
         fixed_params_indices: list[int],
         args: list[float],
     ):
         self.distribution = distribution
         self.n = n
-        self.components = components
+        self.trend = trend
+        self.seasonality = seasonality
+        self.harmonics = harmonics
+        self.period = period
         self.time_varying_indices = time_varying_indices
         self.fixed_params_indices = fixed_params_indices
         self.args = args
 
-    def initialize(self, initial_values):
+    def initialize(self):
         pass
 
     def update_components(self, score, hyperparameters, component_dynamics, t):
@@ -36,9 +45,20 @@ class Dynamics:
 
     def fit_in_sample(self, params, y):
 
+        gamma = np.zeros(self.harmonics)
+        gamma_star = np.zeros(self.harmonics)
+
         km = params[0]
-        mu0 = params[1]
-        alpha = params[2]
+        kg = params[1]
+
+        for i in range(self.harmonics):
+            gamma[i] = params[i + 2]
+            gamma_star[i] = params[i + 2 + self.harmonics]
+
+        print(gamma)
+
+        mu0 = params[self.harmonics * 2 + 2]
+        alpha = params[self.harmonics * 2 + 3]
 
         mu = mu0
 
@@ -46,28 +66,68 @@ class Dynamics:
 
         for t in range(self.n):
 
-            lambda_t = mu
+            lambda_t = mu + np.sum(gamma)
+            score = self.distribution.score(y[t], alpha=alpha, lambda_=lambda_t)[0]
             fit_in_sample[t] = self.distribution.mean(alpha=alpha, lambda_=lambda_t)
-            mu += km * self.distribution.score(y[t], alpha=alpha, lambda_=lambda_t)[0]
+            mu += km * score
+
+            for i in range(self.harmonics):
+                lambda_i = (2 * np.pi * i) / self.period
+                gamma_t1 = (
+                    np.cos(lambda_i) * gamma[i]
+                    + np.sin(lambda_i) * gamma_star[i]
+                    + kg * score
+                )
+                gamma_start_t1 = (
+                    np.cos(lambda_i) * gamma_star[i]
+                    - np.sin(lambda_i) * gamma[i]
+                    + kg * score
+                )
+                gamma[i] = gamma_t1
+                gamma_star[i] = gamma_start_t1
 
         return fit_in_sample
 
     def objective(self, params, y):
 
+        gamma = np.zeros(self.harmonics)
+        gamma_star = np.zeros(self.harmonics)
+
         km = params[0]
-        mu0 = params[1]
-        alpha = params[2]
+        kg = params[1]
+
+        for i in range(self.harmonics):
+            gamma[i] = params[i + 2]
+            gamma_star[i] = params[i + 2 + self.harmonics]
+
+        mu0 = params[self.harmonics * 2 + 2]
+        alpha = params[self.harmonics * 2 + 3]
 
         mu_t = mu0
         sum_logpdf = 0
 
-        for t, yt in enumerate(y):
+        for _, yt in enumerate(y):
 
-            lambda_t = mu_t
+            lambda_t = mu_t + np.sum(gamma)
             logpdf = self.distribution.logpdf(yt, alpha=alpha, lambda_=lambda_t)
             score = self.distribution.score(yt, alpha=alpha, lambda_=lambda_t)[0]
 
             mu_t += km * score
+
+            for i in range(self.harmonics):
+                lambda_i = (2 * np.pi * i) / self.period
+                gamma_t1 = (
+                    np.cos(lambda_i) * gamma[i]
+                    + np.sin(lambda_i) * gamma_star[i]
+                    + kg * score
+                )
+                gamma_start_t1 = (
+                    np.cos(lambda_i) * gamma_star[i]
+                    - np.sin(lambda_i) * gamma[i]
+                    + kg * score
+                )
+                gamma[i] = gamma_t1
+                gamma_star[i] = gamma_start_t1
 
             sum_logpdf += logpdf
 
