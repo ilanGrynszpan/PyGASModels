@@ -35,7 +35,7 @@ class GammaLogLinkDistribution(Distribution):
         alpha, lambda_, shape, scale = self._get_parameters(**kwargs)
 
         # Gamma logpdf: logpdf(y) = -log(Γ(k)) - k*log(θ) + (k-1)*log(y) - y/θ
-        log_pdf = -stats.gamma.logpdf(y, a=shape, scale=scale)
+        log_pdf = stats.gamma.logpdf(y, a=shape, scale=scale)
 
         return log_pdf
 
