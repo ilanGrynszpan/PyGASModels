@@ -183,9 +183,6 @@ class Dynamics:
             if np.isnan(lambda_t) or np.isinf(lambda_t):
                 return np.inf
 
-            if np.abs(lambda_t) > 12.0:
-                return np.inf
-
             # Add bounds checking for numerical stability
 
             try:
