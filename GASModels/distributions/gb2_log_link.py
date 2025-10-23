@@ -25,11 +25,11 @@ class GB2LogLinkDistribution(Distribution):
         phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
         log_pdf = (
-            -np.log(gamma)
-            + (xi / gamma - 1) * np.log(y / phi)
-            - np.log(phi)
-            - np.log(beta(xi, zeta))
-            - (xi + zeta) * np.log(1 + (y / phi) ** (1 / gamma))
+            -gamma
+            + (np.exp(xi - gamma) - 1) * np.log(y / np.exp(phi))
+            - phi
+            - np.log(beta(np.exp(xi), np.exp(zeta)))
+            - (np.exp(xi) + np.exp(zeta)) * (1 + (y / np.exp(phi)) ** (np.exp(-gamma)))
         )
 
         return log_pdf

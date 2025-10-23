@@ -168,9 +168,18 @@ class Dynamics:
             gamma_star[i] = params[i + 2 + self.harmonics] / 10000
 
         mu0 = params[self.harmonics * 2 + 2]
-        alpha = params[self.harmonics * 2 + 3]  # Constrain alpha
 
-        if np.abs(alpha) > 10.0:
+        phi = params[self.harmonics * 2 + 3]
+        gamma_ = params[self.harmonics * 2 + 4]
+        xi = params[self.harmonics * 2 + 5]
+        zeta = params[self.harmonics * 2 + 6]
+
+        if (
+            np.abs(phi) > 10.0
+            or np.abs(gamma_) > 10.0
+            or np.abs(xi) > 10.0
+            or np.abs(zeta) > 10.0
+        ):
             return np.inf
 
         mu_t = mu0
