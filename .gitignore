@@ -1,3 +1,4 @@
 *.pyc
 *.xls
+*.csv
 _pycache_/*

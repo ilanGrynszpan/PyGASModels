@@ -41,8 +41,8 @@ class Dynamics:
 
     def _estimate_seasonal_components(self, y, harmonics, period):
         """Estimate initial seasonal components with regularization for higher harmonics"""
-        gamma = [2] * harmonics
-        gamma_star = [2] * harmonics
+        gamma = [10] * harmonics
+        gamma_star = [10] * harmonics
 
         return gamma, gamma_star
 
@@ -88,14 +88,18 @@ class Dynamics:
         n = len(y)
 
         # 1. Initial mu0 - based on overall level in log space (for Gamma log-link)
-        mu0 = np.log(y[0])
+        mu0 = 0  # np.log(y[0])
 
-        # 2. Initial alpha - estimate Gamma shape parameter from data
-        alpha = 0.00
+        # 2. Initial parameters - estimate Gamma shape parameter from data
+        delta_0 = 50
+        delta_1 = 10
+        gamma_ = 33.7
+        xi = 68.3
+        zeta = 64.1
 
         # 3. Learning rates km, kg - start with small values
-        km = 2
-        kg = 2
+        km = 20
+        kg = 20
 
         # 4. Seasonal components gamma_0, gamma_star_0 - use Fourier analysis
         gamma_0, gamma_star_0 = self._estimate_seasonal_components(
@@ -103,7 +107,14 @@ class Dynamics:
         )
 
         # Construct parameter vector for optimization
-        initial_params = np.concatenate([[km, kg], gamma_0, gamma_star_0, [mu0, alpha]])
+        initial_params = np.concatenate(
+            [
+                [km, kg],
+                gamma_0,
+                gamma_star_0,
+                [mu0, delta_0, delta_1, gamma_, xi, zeta],
+            ]
+        )
 
         return initial_params
 
@@ -117,23 +128,42 @@ class Dynamics:
         gamma = np.zeros(self.harmonics)
         gamma_star = np.zeros(self.harmonics)
 
-        km = params[0] / 10000
-        kg = params[1] / 10000
+        km = params[0] / 1000
+        kg = params[1] / 1000
 
         for i in range(self.harmonics):
-            gamma[i] = params[i + 2] / 10000
-            gamma_star[i] = params[i + 2 + self.harmonics] / 10000
+            gamma[i] = params[i + 2] / 100
+            gamma_star[i] = params[i + 2 + self.harmonics] / 100
 
-        mu0 = params[self.harmonics * 2 + 2]
-        alpha = params[self.harmonics * 2 + 3]
+        mu0 = params[self.harmonics * 2 + 2] / 100
+        delta_0 = params[self.harmonics * 2 + 3] / 100
+        delta_1 = params[self.harmonics * 2 + 4] / 100
+        gamma_ = params[self.harmonics * 2 + 5] / 100
+        xi = params[self.harmonics * 2 + 6] / 100
+        zeta = params[self.harmonics * 2 + 7] / 100
 
         mu = mu0
         fit_in_sample = np.zeros(self.n)
 
         for t in range(self.n):
-            lambda_t = mu + np.sum(gamma)
-            score = self.distribution.score(y[t], alpha=alpha, lambda_=lambda_t)[0]
-            fit_in_sample[t] = self.distribution.mean(alpha=alpha, lambda_=lambda_t)
+            phi = mu + np.sum(gamma)
+            score = self.distribution.score(
+                y[t],
+                delta_0=delta_0,
+                delta_1=delta_1,
+                phi=phi,
+                gamma=gamma_,
+                xi=xi,
+                zeta=zeta,
+            )[0]
+            fit_in_sample[t] = self.distribution.mean(
+                delta_0=delta_0,
+                delta_1=delta_1,
+                phi=phi,
+                gamma=gamma_,
+                xi=xi,
+                zeta=zeta,
+            )
             mu += km * score
 
             for i in range(self.harmonics):
@@ -157,29 +187,30 @@ class Dynamics:
         gamma = np.zeros(self.harmonics)
         gamma_star = np.zeros(self.harmonics)
 
-        km = params[0] / 10000
-        kg = params[1] / 10000
+        km = params[0] / 1000
+        kg = params[1] / 1000
 
-        # if np.abs(kg) > 2.0 or np.abs(km) > 2.0:
-        #     return np.inf
+        if np.abs(kg) > 2.0 or np.abs(km) > 2.0:
+            print("d1")
+            return np.inf
 
         for i in range(self.harmonics):
-            gamma[i] = params[i + 2] / 10000
-            gamma_star[i] = params[i + 2 + self.harmonics] / 10000
+            gamma[i] = params[i + 2] / 100
+            gamma_star[i] = params[i + 2 + self.harmonics] / 100
 
         mu0 = params[self.harmonics * 2 + 2]
 
-        phi = params[self.harmonics * 2 + 3]
-        gamma_ = params[self.harmonics * 2 + 4]
-        xi = params[self.harmonics * 2 + 5]
-        zeta = params[self.harmonics * 2 + 6]
+        delta_0 = params[self.harmonics * 2 + 3] / 100
+        delta_1 = params[self.harmonics * 2 + 4] / 100
+        gamma_ = params[self.harmonics * 2 + 5] / 100
+        xi = params[self.harmonics * 2 + 6] / 100
+        zeta = params[self.harmonics * 2 + 7] / 100
 
-        if (
-            np.abs(phi) > 10.0
-            or np.abs(gamma_) > 10.0
-            or np.abs(xi) > 10.0
-            or np.abs(zeta) > 10.0
-        ):
+        if np.exp(zeta) <= np.exp(gamma_):
+            print("d2")
+            return np.inf
+
+        if np.abs(delta_0) > 2.0 or np.abs(delta_1) > 2.0:
             return np.inf
 
         mu_t = mu0
@@ -187,20 +218,48 @@ class Dynamics:
         sum_logpdf = 0.0
 
         for t, yt in enumerate(y):
-            lambda_t = mu_t + np.sum(gamma)
+            phi = mu_t + np.sum(gamma)
 
-            if np.isnan(lambda_t) or np.isinf(lambda_t):
+            if np.abs(phi) > 10:
                 return np.inf
 
             # Add bounds checking for numerical stability
 
             try:
-                logpdf = self.distribution.logpdf(yt, alpha=alpha, lambda_=lambda_t)
-                score = self.distribution.score(yt, alpha=alpha, lambda_=lambda_t)[0]
+                logpdf = self.distribution.logpdf(
+                    yt,
+                    delta_0=delta_0,
+                    delta_1=delta_1,
+                    phi=phi,
+                    gamma=gamma_,
+                    xi=xi,
+                    zeta=zeta,
+                )
+                score = self.distribution.score(
+                    yt,
+                    delta_0=delta_0,
+                    delta_1=delta_1,
+                    phi=phi,
+                    gamma=gamma_,
+                    xi=xi,
+                    zeta=zeta,
+                )[0]
+                if np.isnan(logpdf) or np.isnan(score):
+                    return np.inf
             except (ValueError, FloatingPointError):
+                print("d3")
                 return np.inf
 
             sum_logpdf += logpdf
+
+            if (
+                np.isinf(np.abs(phi))
+                or np.isinf(np.abs(gamma_))
+                or np.isinf(np.abs(xi))
+                or np.isinf(np.abs(zeta))
+            ):
+                print("d4")
+                return np.inf
 
             # Update level
             mu_t += km * score
@@ -224,6 +283,6 @@ class Dynamics:
         if np.isnan(sum_logpdf) or np.isinf(sum_logpdf):
             return np.inf
 
-        regularization = 0.01 * np.sum(params**2)
+        regularization = 0.05 * np.sum(params**2)
 
         return -sum_logpdf + regularization  # Negative for minimization
