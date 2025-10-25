@@ -63,8 +63,8 @@ class ZAGB2LogLinkDistribution(Distribution):
             z = (y / np.exp(phi)) ** np.exp(-gamma)
             dL_dphi = (
                 delta_1 * (1 - pi)  # Zero-inflation component
+                + (np.exp(xi) + np.exp(zeta)) * np.exp(-gamma) * z / (1 + z)
                 - np.exp(xi - gamma)
-                + (np.exp(xi) + np.exp(zeta)) * z / (1 + z) * np.exp(-gamma)
             )
 
             dL_dgamma = (
@@ -72,9 +72,8 @@ class ZAGB2LogLinkDistribution(Distribution):
                 - np.exp(xi - gamma) * np.log(y / np.exp(phi))
                 + (np.exp(xi) + np.exp(zeta))
                 * np.exp(-gamma)
-                * z
-                / (1 + z)
-                * (np.log(y - phi))
+                * (z / (1 + z))
+                * (np.log(y / np.exp(phi)))
             )
 
             dL_dxi = (
