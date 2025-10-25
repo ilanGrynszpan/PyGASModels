@@ -3,6 +3,7 @@ from GASModels.distributions.distribution import Distribution
 import numpy as np
 from scipy.fft import fft
 from scipy.optimize import curve_fit
+from scipy import stats
 
 
 class Dynamics:
@@ -99,8 +100,8 @@ class Dynamics:
         mu0 = 10  # Will be 1.0 after scaling (within -1000, 1000)
 
         # These must be within bounds after scaling:
-        delta_0 = 10  # Will be 0.1 after scaling (within -200, 200)
-        delta_1 = 5  # Will be 0.05 after scaling (within -100, 100)
+        delta_0 = 100  # Will be 0.1 after scaling (within -200, 200)
+        delta_1 = 100  # Will be 0.05 after scaling (within -100, 100)
         gamma_ = 33  # Will be 1.0 after scaling (within 10, 500)
         xi = 68  # Will be 1.0 after scaling (within 10, 500)
         zeta = 66  # Will be 2.0 after scaling (within 20, 1000) AND zeta > gamma_
@@ -214,6 +215,93 @@ class Dynamics:
 
         return fit_in_sample
 
+    def pit(self, params, y):
+        gamma = np.zeros(self.harmonics)
+        gamma_star = np.zeros(self.harmonics)
+
+        km = params[0] / 1000
+        kg = params[1] / 1000
+
+        for i in range(self.harmonics):
+            gamma[i] = params[i + 2] / 100
+            gamma_star[i] = params[i + 2 + self.harmonics] / 100
+
+        mu0 = params[self.harmonics * 2 + 2] / 100
+        delta_0 = params[self.harmonics * 2 + 3] / 100
+        delta_1 = params[self.harmonics * 2 + 4] / 100
+        gamma_ = params[self.harmonics * 2 + 5] / 100
+        xi = params[self.harmonics * 2 + 6] / 100
+        zeta = params[self.harmonics * 2 + 7] / 100
+
+        mu = mu0
+        pit = np.zeros(self.n)
+
+        for t in range(self.n):
+            phi = mu + np.sum(gamma)
+
+            score = self.distribution.score(
+                y[t],
+                delta_0=delta_0,
+                delta_1=delta_1,
+                phi=phi,
+                gamma=gamma_,
+                xi=xi,
+                zeta=zeta,
+            )[0]
+            pit[t] = self.distribution.cdf(
+                y[t],
+                delta_0=delta_0,
+                delta_1=delta_1,
+                phi=phi,
+                gamma=gamma_,
+                xi=xi,
+                zeta=zeta,
+            )
+            mu += km * score
+
+            for i in range(self.harmonics):
+                lambda_i = (2 * np.pi * (i + 1)) / self.period
+                gamma_t1 = (
+                    np.cos(lambda_i) * gamma[i]
+                    + np.sin(lambda_i) * gamma_star[i]
+                    + kg * score
+                )
+                gamma_start_t1 = (
+                    np.cos(lambda_i) * gamma_star[i]
+                    - np.sin(lambda_i) * gamma[i]
+                    + kg * score
+                )
+                gamma[i] = gamma_t1
+                gamma_star[i] = gamma_start_t1
+
+        return pit
+
+    def get_quantile_residuals(self, pit):
+        """
+        Calculate quantile residuals from the fitted model.
+
+        Quantile residuals are defined as the inverse standard normal CDF
+        applied to the PIT values: r_t = Φ^{-1}(PIT_t)
+
+        Parameters
+        ----------
+        params : array_like
+            Model parameters
+        y : array_like
+            Observed time series data
+
+        Returns
+        -------
+        quantile_residuals : ndarray
+            Quantile residuals following standard normal distribution
+            if the model is correctly specified
+        """
+
+        # Transform to quantile residuals using inverse standard normal CDF
+        quantile_residuals = stats.norm.ppf(pit)
+
+        return quantile_residuals
+
     def objective(self, params, y, bounds):
         # Extensive parameter validation FIRST
         if np.any(np.isnan(params)) or np.any(np.isinf(params)):
@@ -227,25 +315,23 @@ class Dynamics:
 
         try:
             # Parameter extraction with extensive clamping
-            km = np.clip(params[0] / 1000.0, 0.001, 2.0)
-            kg = np.clip(params[1] / 1000.0, 0.001, 2.0)
+            km = params[0] / 1000.0
+            kg = params[1] / 1000.0
 
             gamma = np.zeros(self.harmonics)
             gamma_star = np.zeros(self.harmonics)
 
             for i in range(self.harmonics):
-                gamma[i] = np.clip(params[i + 2] / 100.0, -2.0, 2.0)
-                gamma_star[i] = np.clip(
-                    params[i + 2 + self.harmonics] / 100.0, -2.0, 2.0
-                )
+                gamma[i] = params[i + 2] / 100.0
+                gamma_star[i] = params[i + 2 + self.harmonics] / 100.0
 
-            mu0 = np.clip(params[self.harmonics * 2 + 2] / 100.0, -10.0, 10.0)
+            mu0 = params[self.harmonics * 2 + 2] / 100.0
 
-            delta_0 = np.clip(params[self.harmonics * 2 + 3] / 100.0, -2.0, 2.0)
-            delta_1 = np.clip(params[self.harmonics * 2 + 4] / 100.0, -1.0, 1.0)
-            gamma_ = np.clip(params[self.harmonics * 2 + 5] / 100.0, 0.1, 5.0)
-            xi = np.clip(params[self.harmonics * 2 + 6] / 100.0, 0.1, 5.0)
-            zeta = np.clip(params[self.harmonics * 2 + 7] / 100.0, gamma_ + 0.1, 10.0)
+            delta_0 = params[self.harmonics * 2 + 3] / 100.0
+            delta_1 = params[self.harmonics * 2 + 4] / 100.0
+            gamma_ = params[self.harmonics * 2 + 5] / 100.0
+            xi = params[self.harmonics * 2 + 6] / 100.0
+            zeta = params[self.harmonics * 2 + 7] / 100.0
 
             # Verify critical condition
             if zeta <= gamma_:
@@ -265,7 +351,6 @@ class Dynamics:
             try:
                 # Calculate phi with bounds
                 seasonal_sum = np.sum(gamma)
-                seasonal_sum = np.clip(seasonal_sum, -5.0, 5.0)
                 phi = mu_t + seasonal_sum
 
                 mean = self.distribution.mean(
@@ -309,11 +394,6 @@ class Dynamics:
                 )
                 score = score_vec[0]  # dL_dphi
 
-                if np.isnan(score) or np.isinf(score):
-                    score = 0.0
-                else:
-                    score = np.clip(score, -5.0, 5.0)
-
             except (ValueError, FloatingPointError) as e:
                 score = 0.0
                 continue
@@ -340,8 +420,8 @@ class Dynamics:
                     + kg * score
                 )
 
-                gamma[i] = np.clip(gamma_t1, -2.0, 2.0)
-                gamma_star[i] = np.clip(gamma_start_t1, -2.0, 2.0)
+                gamma[i] = gamma_t1
+                gamma_star[i] = gamma_start_t1
 
         # Final validation
         if valid_count == 0:
@@ -354,6 +434,6 @@ class Dynamics:
 
         # Gentle regularization
         avg_loglik = sum_logpdf / valid_count
-        regularization = 0.001 * np.sum(np.square(params / 100.0))
+        regularization = 0.01 * np.sum(np.square(params / 100.0))
 
         return -avg_loglik + regularization

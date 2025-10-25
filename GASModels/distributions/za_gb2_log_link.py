@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.stats as stats
 from scipy.special import digamma, polygamma, beta
+from scipy.special import betainc, expit
 from GASModels.distributions.distribution import Distribution
 
 
@@ -26,106 +27,68 @@ class ZAGB2LogLinkDistribution(Distribution):
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
         # Numerical stability for pi calculation
-        linear_comb = delta_0 + delta_1 * np.exp(phi)
+        linear_comb = delta_0 + delta_1 * phi
         # Use log-exp trick for numerical stability
-        max_val = np.maximum(0, linear_comb)
-        pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
+        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
-        # Handle both scalar and array inputs
-        y = np.asarray(y)
-        result = np.zeros_like(y, dtype=float)
-
-        # Zero observations
-        zero_mask = y == 0
-        result[zero_mask] = np.log(1 - pi)
-
-        # Positive observations
-        pos_mask = y > 0
-        if np.any(pos_mask):
-            y_pos = y[pos_mask]
-
-            # Numerical safeguards
-            y_safe = np.maximum(y_pos, 1e-10)
-            exponent = np.exp(-gamma)
-            z = (y_safe / np.exp(phi)) ** exponent
-
-            # Use log1p for numerical stability
-            log_pdf_pos = (
+        if y <= 0:
+            return np.log(1 - pi)
+        else:
+            return (
                 np.log(pi)
                 - gamma
-                + (np.exp(xi - gamma) - 1) * (np.log(y_safe) - phi)
+                + (np.exp(xi - gamma) - 1) * (np.log(y) - phi)
                 - phi
                 - np.log(beta(np.exp(xi), np.exp(zeta)))
-                - (np.exp(xi) + np.exp(zeta)) * np.log1p(z)
+                - (np.exp(xi) + np.exp(zeta))
+                * np.log(1 + (y / np.exp(phi)) ** np.exp(-gamma))
             )
-
-            result[pos_mask] = log_pdf_pos
-
-        return result
 
     def score(self, y, **kwargs):
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
         # Numerical stability for pi calculation
-        linear_comb = delta_0 + delta_1 * np.exp(phi)
-        max_val = np.maximum(0, linear_comb)
-        pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
-
-        y = np.asarray(y)
+        linear_comb = delta_0 + delta_1 * phi
+        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
         # Initialize scores for the 4 parameters we want (phi, gamma, xi, zeta)
-        dL_dphi = np.zeros_like(y)
-        dL_dgamma = np.zeros_like(y)
-        dL_dxi = np.zeros_like(y)
-        dL_dzeta = np.zeros_like(y)
+        dL_dphi = 0.0
+        dL_dgamma = 0.0
+        dL_dxi = 0.0
+        dL_dzeta = 0.0
 
-        # Zero observations
-        zero_mask = y == 0
-        if np.any(zero_mask):
-            dL_dphi[zero_mask] = -delta_1 * pi * np.exp(phi)
-
-        # Positive observations
-        pos_mask = y > 0
-        if np.any(pos_mask):
-            y_pos = y[pos_mask]
-
-            # Numerical safeguards
-            y_safe = np.maximum(y_pos, 1e-10)
-            exponent = np.exp(-gamma)
-            z = (y_safe / np.exp(phi)) ** exponent
-            z = np.clip(z, 1e-10, 1e10)
-
-            z_ratio = z / (1 + z)
-            log_y_phi = np.log(y_safe) - phi
-
-            # Score for phi (includes zero-inflation effect)
-            dL_dphi[pos_mask] = (
-                delta_1 * (1 - pi) * np.exp(phi)  # Zero-inflation component
-                + (np.exp(xi) + np.exp(zeta)) * np.exp(-gamma) * z_ratio
+        if y <= 0:
+            dL_dphi = -delta_1 * pi
+        else:
+            z = (y / np.exp(phi)) ** np.exp(-gamma)
+            dL_dphi = (
+                delta_1 * (1 - pi)  # Zero-inflation component
                 - np.exp(xi - gamma)
+                + (np.exp(xi) + np.exp(zeta)) * z / (1 + z) * np.exp(-gamma)
             )
 
-            dL_dgamma[pos_mask] = (
+            dL_dgamma = (
                 -1
-                + log_y_phi * np.exp(xi - gamma)
-                - (np.exp(xi) + np.exp(zeta)) * np.exp(-gamma) * log_y_phi * z_ratio
+                - np.exp(xi - gamma) * np.log(y / np.exp(phi))
+                + (np.exp(xi) + np.exp(zeta))
+                * np.exp(-gamma)
+                * z
+                / (1 + z)
+                * (np.log(y - phi))
             )
 
-            dL_dxi[pos_mask] = (
-                log_y_phi * np.exp(xi - gamma)
+            dL_dxi = (
+                (np.exp(xi - gamma) * np.log(y / np.exp(phi)))
                 - np.exp(xi)
                 * (digamma(np.exp(xi)) - digamma(np.exp(xi) + np.exp(zeta)))
-                - np.exp(xi) * np.log1p(z)
+                - np.log(1 + z) * np.exp(xi)
             )
 
-            dL_dzeta[pos_mask] = -np.exp(zeta) * (
+            dL_dzeta = -np.exp(zeta) * (
                 digamma(np.exp(zeta)) - digamma(np.exp(xi) + np.exp(zeta))
-            ) - np.exp(zeta) * np.log1p(z)
+            ) - np.log(1 + z) * np.exp(zeta)
 
-        # Return average score across observations (only 4 parameters)
-        return np.array(
-            [np.mean(dL_dphi), np.mean(dL_dgamma), np.mean(dL_dxi), np.mean(dL_dzeta)]
-        )
+        return np.array([dL_dphi, dL_dgamma, dL_dxi, dL_dzeta])
 
     def fisher_information(self, **kwargs):
         """
@@ -135,6 +98,37 @@ class ZAGB2LogLinkDistribution(Distribution):
         # Return identity matrix as placeholder
         return np.eye(4)
 
+    def cdf(self, y, **kwargs):
+        """
+        CDF for Zero-Augmented GB2 distribution.
+
+        F(y) = {
+            0                   if y < 0
+            1 - π               if y = 0
+            (1 - π) + π * F_GB2(y) if y > 0
+        }
+        """
+        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+
+        # π = logistic(delta_0 + delta_1 * exp(phi))
+        linear_comb = delta_0 + delta_1 * phi
+        pi = expit(linear_comb)  # numerically stable sigmoid
+
+        if y <= 0:
+            return 1 - pi
+        else:
+            # GB2 parameters
+            sigma = np.exp(phi)
+            p = np.exp(-gamma)
+            a = np.exp(xi)
+            b = np.exp(zeta)
+
+            # GB2 CDF = I_{z/(1+z)}(a, b), with z = (y/σ)^p
+            z = (y / sigma) ** p
+            gb2_cdf = betainc(a, b, z / (1 + z))
+
+            return (1 - pi) + pi * gb2_cdf
+
     def mean(self, **kwargs):
         """Return the mean of the zero-inflated distribution"""
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
@@ -143,7 +137,7 @@ class ZAGB2LogLinkDistribution(Distribution):
             raise ValueError("Mean is undefined when zeta <= gamma")
 
         # Numerical stability for pi
-        linear_comb = delta_0 + delta_1 * np.exp(phi)
+        linear_comb = delta_0 + delta_1 * phi
         max_val = np.maximum(0, linear_comb)
         pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
 
@@ -167,7 +161,7 @@ class ZAGB2LogLinkDistribution(Distribution):
             raise ValueError("Variance is undefined when zeta <= gamma")
 
         # Numerical stability for pi
-        linear_comb = delta_0 + delta_1 * np.exp(phi)
+        linear_comb = delta_0 + delta_1 * phi
         max_val = np.maximum(0, linear_comb)
         pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
 
