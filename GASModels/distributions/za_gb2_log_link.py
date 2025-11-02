@@ -37,7 +37,7 @@ class ZAGB2LogLinkDistribution(Distribution):
             return (
                 np.log(pi)
                 - gamma
-                + (np.exp(xi - gamma) - 1) * (np.log(y) - phi)
+                + (np.exp(xi - gamma) - 1) * (np.log(y / np.exp(phi)))
                 - phi
                 - np.log(beta(np.exp(xi), np.exp(zeta)))
                 - (np.exp(xi) + np.exp(zeta))
@@ -137,8 +137,7 @@ class ZAGB2LogLinkDistribution(Distribution):
 
         # Numerical stability for pi
         linear_comb = delta_0 + delta_1 * phi
-        max_val = np.maximum(0, linear_comb)
-        pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
+        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
         # GB2 component mean
         gb2_mean = (
@@ -150,7 +149,7 @@ class ZAGB2LogLinkDistribution(Distribution):
         # Zero-inflated mean: pi * GB2_mean + (1-pi)*0 = pi * GB2_mean
         expected_value = pi * gb2_mean
 
-        return expected_value
+        return gb2_mean, expected_value
 
     def variance(self, **kwargs):
         """Return the variance of the zero-inflated distribution"""

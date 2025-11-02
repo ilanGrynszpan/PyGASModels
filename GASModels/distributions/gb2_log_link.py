@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.stats as stats
 from scipy.special import digamma, polygamma, beta
+from scipy.special import betainc, expit
 from GASModels.distributions.distribution import Distribution
 
 
@@ -128,3 +129,25 @@ class GB2LogLinkDistribution(Distribution):
         variance = ex2 - ex**2
 
         return variance
+
+    def cdf(self, y, **kwargs):
+        phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+
+        # Correct parameter mapping based on your specification:
+        a = np.exp(-gamma)  # a = exp(-f2) where f2 is gamma
+        b = np.exp(phi)  # b = exp(phi)
+        p = xi  # p = xi (directly)
+        q = zeta  # q = zeta (directly)
+
+        # GB2 CDF: F(y) = I_{z/(1+z)}(a, b) where z = (y/b)^p
+        # Note: In standard GB2 notation, the scale parameter is typically 'b'
+        z = (y / b) ** p
+
+        # Regularize to avoid numerical issues
+        z = np.maximum(z, 1e-16)  # Ensure positive
+        u = z / (1 + z)
+        u = np.clip(u, 1e-16, 1 - 1e-16)  # Keep within (0,1) for betainc
+
+        gb2_cdf = betainc(a, q, u)  # Note: using 'q' as the second parameter
+
+        return gb2_cdf

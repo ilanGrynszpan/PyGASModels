@@ -88,8 +88,26 @@ class Dynamics:
         if len(y_positive) == 0:
             y_positive = np.array([1e-6])
 
+        # # 1. Learning rates - within bounds (1, 2000)
+        # km = 50  # Will be 0.5 after scaling
+        # kg = 20  # Will be 0.2 after scaling
+
+        # # 2. Seasonal components - within bounds (-200, 200)
+        # gamma_0 = np.zeros(self.harmonics) * 40  # Small values
+        # gamma_star_0 = np.zeros(self.harmonics) * 40
+
+        # # 3. Distribution parameters - CRITICAL: must respect bounds
+        # mu0 = 10  # Will be 1.0 after scaling (within -1000, 1000)
+
+        # # These must be within bounds after scaling:
+        # delta_0 = 100  # Will be 0.1 after scaling (within -200, 200)
+        # delta_1 = 100  # Will be 0.05 after scaling (within -100, 100)
+        # gamma_ = 33  # Will be 1.0 after scaling (within 10, 500)
+        # xi = 68  # Will be 1.0 after scaling (within 10, 500)
+        # zeta = 66  # Will be 2.0 after scaling (within 20, 1000) AND zeta > gamma_
+
         # 1. Learning rates - within bounds (1, 2000)
-        km = 50  # Will be 0.5 after scaling
+        km = 20  # Will be 0.5 after scaling
         kg = 20  # Will be 0.2 after scaling
 
         # 2. Seasonal components - within bounds (-200, 200)
@@ -100,15 +118,20 @@ class Dynamics:
         mu0 = 10  # Will be 1.0 after scaling (within -1000, 1000)
 
         # These must be within bounds after scaling:
-        delta_0 = 100  # Will be 0.1 after scaling (within -200, 200)
-        delta_1 = 100  # Will be 0.05 after scaling (within -100, 100)
-        gamma_ = 33  # Will be 1.0 after scaling (within 10, 500)
-        xi = 68  # Will be 1.0 after scaling (within 10, 500)
-        zeta = 66  # Will be 2.0 after scaling (within 20, 1000) AND zeta > gamma_
+        # delta_0 = 50  # Will be 0.1 after scaling (within -200, 200)
+        # delta_1 = 50  # Will be 0.05 after scaling (within -100, 100)
+        gamma_ = 20  # Will be 1.0 after scaling (within 10, 500)
+        xi = 200  # Will be 1.0 after scaling (within 10, 500)
+        zeta = 200  # Will be 2.0 after scaling (within 20, 1000) AND zeta > gamma_
 
         # Verify bounds compliance
         test_params = np.concatenate(
-            [[km, kg], gamma_0, gamma_star_0, [mu0, delta_0, delta_1, gamma_, xi, zeta]]
+            [
+                [km, kg],
+                gamma_0,
+                gamma_star_0,
+                [mu0, gamma_, xi, zeta],
+            ]  # [mu0, delta_0, delta_1, gamma_, xi, zeta]]
         )
 
         print(f"Initial parameter check:")
@@ -120,18 +143,18 @@ class Dynamics:
         print(
             f"mu0: {mu0} (bounds: -1000-1000) - {'OK' if -1000 <= mu0 <= 1000 else 'VIOLATION'}"
         )
+        # print(
+        #     f"delta_0: {delta_0} (bounds: -200-200) - {'OK' if -200 <= delta_0 <= 200 else 'VIOLATION'}"
+        # )
+        # print(
+        #     f"delta_1: {delta_1} (bounds: -100-100) - {'OK' if -100 <= delta_1 <= 100 else 'VIOLATION'}"
+        # )
         print(
-            f"delta_0: {delta_0} (bounds: -200-200) - {'OK' if -200 <= delta_0 <= 200 else 'VIOLATION'}"
+            f"gamma_: {gamma_} (bounds: 10-500) - {'OK' if 0 <= gamma_ <= 500 else 'VIOLATION'}"
         )
+        print(f"xi: {xi} (bounds: 10-500) - {'OK' if 0 <= xi <= 500 else 'VIOLATION'}")
         print(
-            f"delta_1: {delta_1} (bounds: -100-100) - {'OK' if -100 <= delta_1 <= 100 else 'VIOLATION'}"
-        )
-        print(
-            f"gamma_: {gamma_} (bounds: 10-500) - {'OK' if 10 <= gamma_ <= 500 else 'VIOLATION'}"
-        )
-        print(f"xi: {xi} (bounds: 10-500) - {'OK' if 10 <= xi <= 500 else 'VIOLATION'}")
-        print(
-            f"zeta: {zeta} (bounds: 20-1000) - {'OK' if 20 <= zeta <= 1000 else 'VIOLATION'}"
+            f"zeta: {zeta} (bounds: 20-1000) - {'OK' if 0 <= zeta <= 1000 else 'VIOLATION'}"
         )
         print(
             f"zeta > gamma_: {zeta > gamma_} - {'OK' if zeta > gamma_ else 'VIOLATION'}"
@@ -143,7 +166,7 @@ class Dynamics:
                 [km, kg],
                 gamma_0,
                 gamma_star_0,
-                [mu0, delta_0, delta_1, gamma_, xi, zeta],
+                [mu0, gamma_, xi, zeta],  # delta_0, delta_1, gamma_, xi, zeta],
             ]
         )
 
@@ -167,36 +190,45 @@ class Dynamics:
             gamma_star[i] = params[i + 2 + self.harmonics] / 100
 
         mu0 = params[self.harmonics * 2 + 2] / 100
-        delta_0 = params[self.harmonics * 2 + 3] / 100
-        delta_1 = params[self.harmonics * 2 + 4] / 100
-        gamma_ = params[self.harmonics * 2 + 5] / 100
-        xi = params[self.harmonics * 2 + 6] / 100
-        zeta = params[self.harmonics * 2 + 7] / 100
+        # delta_0 = params[self.harmonics * 2 + 3] / 100
+        # delta_1 = params[self.harmonics * 2 + 4] / 100
+        # gamma_ = params[self.harmonics * 2 + 5] / 100
+        # xi = params[self.harmonics * 2 + 6] / 100
+        # zeta = params[self.harmonics * 2 + 7] / 100
+
+        gamma_ = params[self.harmonics * 2 + 3] / 100
+        xi = params[self.harmonics * 2 + 4] / 100
+        zeta = params[self.harmonics * 2 + 5] / 100
 
         mu = mu0
         fit_in_sample = np.zeros(self.n)
+        mean_gb2 = np.zeros(self.n)
+        pi = np.zeros(self.n)
 
         for t in range(self.n):
             phi = mu + np.sum(gamma)
 
             score = self.distribution.score(
                 y[t],
-                delta_0=delta_0,
-                delta_1=delta_1,
+                # delta_0=delta_0,
+                # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
                 zeta=zeta,
             )[0]
-            fit_in_sample[t] = self.distribution.mean(
-                delta_0=delta_0,
-                delta_1=delta_1,
+            mean_gb2[t], fit_in_sample[t] = self.distribution.mean(
+                # delta_0=delta_0,
+                # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
                 zeta=zeta,
             )
             mu += km * score
+            # pi[t] = np.exp(delta_0 + delta_1 * phi) / (
+            #     1 + np.exp(delta_0 + delta_1 * phi)
+            # )
 
             for i in range(self.harmonics):
                 lambda_i = (2 * np.pi * (i + 1)) / self.period
@@ -213,7 +245,7 @@ class Dynamics:
                 gamma[i] = gamma_t1
                 gamma_star[i] = gamma_start_t1
 
-        return fit_in_sample
+        return mean_gb2, fit_in_sample, pi
 
     def pit(self, params, y):
         gamma = np.zeros(self.harmonics)
@@ -227,11 +259,15 @@ class Dynamics:
             gamma_star[i] = params[i + 2 + self.harmonics] / 100
 
         mu0 = params[self.harmonics * 2 + 2] / 100
-        delta_0 = params[self.harmonics * 2 + 3] / 100
-        delta_1 = params[self.harmonics * 2 + 4] / 100
-        gamma_ = params[self.harmonics * 2 + 5] / 100
-        xi = params[self.harmonics * 2 + 6] / 100
-        zeta = params[self.harmonics * 2 + 7] / 100
+        # delta_0 = params[self.harmonics * 2 + 3] / 100
+        # delta_1 = params[self.harmonics * 2 + 4] / 100
+        # gamma_ = params[self.harmonics * 2 + 5] / 100
+        # xi = params[self.harmonics * 2 + 6] / 100
+        # zeta = params[self.harmonics * 2 + 7] / 100
+
+        gamma_ = params[self.harmonics * 2 + 3] / 100
+        xi = params[self.harmonics * 2 + 4] / 100
+        zeta = params[self.harmonics * 2 + 5] / 100
 
         mu = mu0
         pit = np.zeros(self.n)
@@ -241,8 +277,8 @@ class Dynamics:
 
             score = self.distribution.score(
                 y[t],
-                delta_0=delta_0,
-                delta_1=delta_1,
+                # delta_0=delta_0,
+                # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
@@ -250,8 +286,8 @@ class Dynamics:
             )[0]
             pit[t] = self.distribution.cdf(
                 y[t],
-                delta_0=delta_0,
-                delta_1=delta_1,
+                # delta_0=delta_0,
+                # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
@@ -307,10 +343,9 @@ class Dynamics:
         if np.any(np.isnan(params)) or np.any(np.isinf(params)):
             return np.inf
 
-        # Check if parameters are within bounds (sanity check)
+        # # Check if parameters are within bounds (sanity check)
         for i, (param, (low, high)) in enumerate(zip(params, bounds)):
             if not (low <= param <= high):
-                print(f"Parameter {i} out of bounds: {param} not in [{low}, {high}]")
                 return np.inf
 
         try:
@@ -327,14 +362,18 @@ class Dynamics:
 
             mu0 = params[self.harmonics * 2 + 2] / 100.0
 
-            delta_0 = params[self.harmonics * 2 + 3] / 100.0
-            delta_1 = params[self.harmonics * 2 + 4] / 100.0
-            gamma_ = params[self.harmonics * 2 + 5] / 100.0
-            xi = params[self.harmonics * 2 + 6] / 100.0
-            zeta = params[self.harmonics * 2 + 7] / 100.0
+            # delta_0 = params[self.harmonics * 2 + 3] / 100.0
+            # delta_1 = params[self.harmonics * 2 + 4] / 100.0
+            # gamma_ = params[self.harmonics * 2 + 5] / 100.0
+            # xi = params[self.harmonics * 2 + 6] / 100.0
+            # zeta = params[self.harmonics * 2 + 7] / 100.0
+
+            gamma_ = params[self.harmonics * 2 + 3] / 100.0
+            xi = params[self.harmonics * 2 + 4] / 100.0
+            zeta = params[self.harmonics * 2 + 5] / 100.0
 
             # Verify critical condition
-            if zeta <= gamma_:
+            if np.exp(zeta) <= 2 * np.exp(gamma_):
                 return np.inf
 
         except (ValueError, IndexError) as e:
@@ -353,23 +392,11 @@ class Dynamics:
                 seasonal_sum = np.sum(gamma)
                 phi = mu_t + seasonal_sum
 
-                mean = self.distribution.mean(
-                    delta_0=delta_0,
-                    delta_1=delta_1,
-                    phi=phi,
-                    gamma=gamma_,
-                    xi=xi,
-                    zeta=zeta,
-                )
-
-                if np.abs(phi) > 10:
-                    return np.inf
-
                 # Calculate log-likelihood
                 logpdf = self.distribution.logpdf(
                     yt,
-                    delta_0=delta_0,
-                    delta_1=delta_1,
+                    # delta_0=delta_0,
+                    # delta_1=delta_1,
                     phi=phi,
                     gamma=gamma_,
                     xi=xi,
@@ -385,8 +412,8 @@ class Dynamics:
                 # Calculate score
                 score_vec = self.distribution.score(
                     yt,
-                    delta_0=delta_0,
-                    delta_1=delta_1,
+                    # delta_0=delta_0,
+                    # delta_1=delta_1,
                     phi=phi,
                     gamma=gamma_,
                     xi=xi,
@@ -434,6 +461,5 @@ class Dynamics:
 
         # Gentle regularization
         avg_loglik = sum_logpdf / valid_count
-        regularization = 0.01 * np.sum(np.square(params / 100.0))
-
+        regularization = 0.1 * np.sum(np.square(params / 100.0))
         return -avg_loglik + regularization
