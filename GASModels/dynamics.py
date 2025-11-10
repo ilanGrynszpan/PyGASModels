@@ -108,17 +108,20 @@ class Dynamics:
 
         # 1. Learning rates - within bounds (1, 2000)
         km = 20  # Will be 0.5 after scaling
-        kg = 20  # Will be 0.2 after scaling
+        kg = 50  # Will be 0.2 after scaling
 
         # 2. Seasonal components - within bounds (-200, 200)
         gamma_0 = np.zeros(self.harmonics) * 40  # Small values
         gamma_star_0 = np.zeros(self.harmonics) * 40
 
+        gamma_pi_0 = (np.zeros(self.harmonics)) * 5  # Small values
+        gamma_star_pi_0 = (np.zeros(self.harmonics)) * 5
+
         # 3. Distribution parameters - CRITICAL: must respect bounds
         mu0 = 10  # Will be 1.0 after scaling (within -1000, 1000)
 
         # These must be within bounds after scaling:
-        # delta_0 = 50  # Will be 0.1 after scaling (within -200, 200)
+        delta_0 = 50  # Will be 0.1 after scaling (within -200, 200)
         # delta_1 = 50  # Will be 0.05 after scaling (within -100, 100)
         gamma_ = 20  # Will be 1.0 after scaling (within 10, 500)
         xi = 200  # Will be 1.0 after scaling (within 10, 500)
@@ -130,8 +133,10 @@ class Dynamics:
                 [km, kg],
                 gamma_0,
                 gamma_star_0,
-                [mu0, gamma_, xi, zeta],
-            ]  # [mu0, delta_0, delta_1, gamma_, xi, zeta]]
+                [mu0, delta_0, gamma_, xi, zeta],
+                gamma_pi_0,
+                gamma_star_pi_0,
+            ]
         )
 
         print(f"Initial parameter check:")
@@ -166,7 +171,9 @@ class Dynamics:
                 [km, kg],
                 gamma_0,
                 gamma_star_0,
-                [mu0, gamma_, xi, zeta],  # delta_0, delta_1, gamma_, xi, zeta],
+                [mu0, delta_0, gamma_, xi, zeta],
+                gamma_pi_0,
+                gamma_star_pi_0,
             ]
         )
 
@@ -190,15 +197,22 @@ class Dynamics:
             gamma_star[i] = params[i + 2 + self.harmonics] / 100
 
         mu0 = params[self.harmonics * 2 + 2] / 100
-        # delta_0 = params[self.harmonics * 2 + 3] / 100
+        delta_0 = params[self.harmonics * 2 + 3] / 100
         # delta_1 = params[self.harmonics * 2 + 4] / 100
         # gamma_ = params[self.harmonics * 2 + 5] / 100
         # xi = params[self.harmonics * 2 + 6] / 100
         # zeta = params[self.harmonics * 2 + 7] / 100
 
-        gamma_ = params[self.harmonics * 2 + 3] / 100
-        xi = params[self.harmonics * 2 + 4] / 100
-        zeta = params[self.harmonics * 2 + 5] / 100
+        gamma_ = params[self.harmonics * 2 + 4] / 100
+        xi = params[self.harmonics * 2 + 5] / 100
+        zeta = params[self.harmonics * 2 + 6] / 100
+
+        gamma_pi = np.zeros(self.harmonics)
+        gamma_star_pi = np.zeros(self.harmonics)
+
+        for i in range(self.harmonics):
+            gamma_pi[i] = params[i + self.harmonics * 2 + 7] / 100
+            gamma_star_pi[i] = params[i + self.harmonics * 3 + 7] / 100
 
         mu = mu0
         fit_in_sample = np.zeros(self.n)
@@ -210,20 +224,26 @@ class Dynamics:
 
             score = self.distribution.score(
                 y[t],
-                # delta_0=delta_0,
+                t=t,
+                delta_0=delta_0,
                 # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
                 zeta=zeta,
+                gamma_pi=gamma_pi,
+                gamma_star_pi=gamma_star_pi,
             )[0]
             mean_gb2[t], fit_in_sample[t] = self.distribution.mean(
-                # delta_0=delta_0,
+                t=t,
+                delta_0=delta_0,
                 # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
                 zeta=zeta,
+                gamma_pi=gamma_pi,
+                gamma_star_pi=gamma_star_pi,
             )
             mu += km * score
             # pi[t] = np.exp(delta_0 + delta_1 * phi) / (
@@ -245,6 +265,14 @@ class Dynamics:
                 gamma[i] = gamma_t1
                 gamma_star[i] = gamma_start_t1
 
+                seas = [
+                    gamma_pi[i] * np.cos(2 * np.pi * (i + 1) * t / 365.25)
+                    + gamma_star_pi[i] * np.sin(2 * np.pi * (i + 1) * t / 365.25)
+                    for i in range(5)
+                ]
+                linear_comb = delta_0 + np.sum(seas)
+                pi[t] = np.exp(linear_comb) / (1 + np.exp(linear_comb))
+
         return mean_gb2, fit_in_sample, pi
 
     def pit(self, params, y):
@@ -259,15 +287,22 @@ class Dynamics:
             gamma_star[i] = params[i + 2 + self.harmonics] / 100
 
         mu0 = params[self.harmonics * 2 + 2] / 100
-        # delta_0 = params[self.harmonics * 2 + 3] / 100
+        delta_0 = params[self.harmonics * 2 + 3] / 100
         # delta_1 = params[self.harmonics * 2 + 4] / 100
         # gamma_ = params[self.harmonics * 2 + 5] / 100
         # xi = params[self.harmonics * 2 + 6] / 100
         # zeta = params[self.harmonics * 2 + 7] / 100
 
-        gamma_ = params[self.harmonics * 2 + 3] / 100
-        xi = params[self.harmonics * 2 + 4] / 100
-        zeta = params[self.harmonics * 2 + 5] / 100
+        gamma_ = params[self.harmonics * 2 + 4] / 100
+        xi = params[self.harmonics * 2 + 5] / 100
+        zeta = params[self.harmonics * 2 + 6] / 100
+
+        gamma_pi = np.zeros(self.harmonics)
+        gamma_star_pi = np.zeros(self.harmonics)
+
+        for i in range(self.harmonics):
+            gamma_pi[i] = params[i + self.harmonics * 2 + 7] / 100
+            gamma_star_pi[i] = params[i + self.harmonics * 3 + 7] / 100
 
         mu = mu0
         pit = np.zeros(self.n)
@@ -277,21 +312,27 @@ class Dynamics:
 
             score = self.distribution.score(
                 y[t],
-                # delta_0=delta_0,
+                t=t,
+                delta_0=delta_0,
                 # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
                 zeta=zeta,
+                gamma_pi=gamma_pi,
+                gamma_star_pi=gamma_star_pi,
             )[0]
             pit[t] = self.distribution.cdf(
                 y[t],
-                # delta_0=delta_0,
+                t=t,
+                delta_0=delta_0,
                 # delta_1=delta_1,
                 phi=phi,
                 gamma=gamma_,
                 xi=xi,
                 zeta=zeta,
+                gamma_pi=gamma_pi,
+                gamma_star_pi=gamma_star_pi,
             )
             mu += km * score
 
@@ -339,6 +380,34 @@ class Dynamics:
         return quantile_residuals
 
     def objective(self, params, y, bounds):
+
+        gamma = np.zeros(self.harmonics)
+        gamma_star = np.zeros(self.harmonics)
+
+        km = params[0] / 1000
+        kg = params[1] / 1000
+
+        for i in range(self.harmonics):
+            gamma[i] = params[i + 2] / 100
+            gamma_star[i] = params[i + 2 + self.harmonics] / 100
+
+        mu0 = params[self.harmonics * 2 + 2] / 100
+        delta_0 = params[self.harmonics * 2 + 3] / 100
+        # delta_1 = params[self.harmonics * 2 + 4] / 100
+        # gamma_ = params[self.harmonics * 2 + 5] / 100
+        # xi = params[self.harmonics * 2 + 6] / 100
+        # zeta = params[self.harmonics * 2 + 7] / 100
+
+        gamma_ = params[self.harmonics * 2 + 4] / 100
+        xi = params[self.harmonics * 2 + 5] / 100
+        zeta = params[self.harmonics * 2 + 6] / 100
+
+        gamma_pi = np.zeros(self.harmonics)
+        gamma_star_pi = np.zeros(self.harmonics)
+
+        for i in range(self.harmonics):
+            gamma_pi[i] = params[i + self.harmonics * 2 + 7] / 100
+            gamma_star_pi[i] = params[i + self.harmonics * 3 + 7] / 100
         # Extensive parameter validation FIRST
         if np.any(np.isnan(params)) or np.any(np.isinf(params)):
             return np.inf
@@ -348,36 +417,7 @@ class Dynamics:
             if not (low <= param <= high):
                 return np.inf
 
-        try:
-            # Parameter extraction with extensive clamping
-            km = params[0] / 1000.0
-            kg = params[1] / 1000.0
-
-            gamma = np.zeros(self.harmonics)
-            gamma_star = np.zeros(self.harmonics)
-
-            for i in range(self.harmonics):
-                gamma[i] = params[i + 2] / 100.0
-                gamma_star[i] = params[i + 2 + self.harmonics] / 100.0
-
-            mu0 = params[self.harmonics * 2 + 2] / 100.0
-
-            # delta_0 = params[self.harmonics * 2 + 3] / 100.0
-            # delta_1 = params[self.harmonics * 2 + 4] / 100.0
-            # gamma_ = params[self.harmonics * 2 + 5] / 100.0
-            # xi = params[self.harmonics * 2 + 6] / 100.0
-            # zeta = params[self.harmonics * 2 + 7] / 100.0
-
-            gamma_ = params[self.harmonics * 2 + 3] / 100.0
-            xi = params[self.harmonics * 2 + 4] / 100.0
-            zeta = params[self.harmonics * 2 + 5] / 100.0
-
-            # Verify critical condition
-            if np.exp(zeta) <= 2 * np.exp(gamma_):
-                return np.inf
-
-        except (ValueError, IndexError) as e:
-            print(f"Parameter extraction error: {e}")
+        if np.exp(zeta) <= 2 * np.exp(gamma_):
             return np.inf
 
         # Initialize state
@@ -395,12 +435,15 @@ class Dynamics:
                 # Calculate log-likelihood
                 logpdf = self.distribution.logpdf(
                     yt,
-                    # delta_0=delta_0,
+                    t=t,
+                    delta_0=delta_0,
                     # delta_1=delta_1,
                     phi=phi,
                     gamma=gamma_,
                     xi=xi,
                     zeta=zeta,
+                    gamma_pi=gamma_pi,
+                    gamma_star_pi=gamma_star_pi,
                 )
 
                 if np.isnan(logpdf) or np.isinf(logpdf):
@@ -412,12 +455,15 @@ class Dynamics:
                 # Calculate score
                 score_vec = self.distribution.score(
                     yt,
-                    # delta_0=delta_0,
+                    t=t,
+                    delta_0=delta_0,
                     # delta_1=delta_1,
                     phi=phi,
                     gamma=gamma_,
                     xi=xi,
                     zeta=zeta,
+                    gamma_pi=gamma_pi,
+                    gamma_star_pi=gamma_star_pi,
                 )
                 score = score_vec[0]  # dL_dphi
 

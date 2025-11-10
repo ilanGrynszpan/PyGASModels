@@ -12,22 +12,33 @@ class ZAGB2LogLinkDistribution(Distribution):
     def _get_parameters(self, **kwargs):
         """Extract and transform parameters from kwargs"""
         delta_0 = kwargs.get("delta_0")
-        delta_1 = kwargs.get("delta_1")
         phi = kwargs.get("phi")
         gamma = kwargs.get("gamma")
         xi = kwargs.get("xi")
         zeta = kwargs.get("zeta")
+        gamma_pi = kwargs.get("gamma_pi")
+        gamma_star_pi = kwargs.get("gamma_star_pi")
 
-        if any(param is None for param in [delta_0, delta_1, phi, gamma, xi, zeta]):
+        if any(
+            param is None
+            for param in [delta_0, phi, gamma, xi, zeta, gamma_pi, gamma_star_pi]
+        ):
             raise ValueError("All ZA-GB2 parameters must be provided")
 
-        return delta_0, delta_1, phi, gamma, xi, zeta
+        return delta_0, phi, gamma, xi, zeta, gamma_pi, gamma_star_pi
 
-    def logpdf(self, y, **kwargs):
-        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+    def logpdf(self, y, t, **kwargs):
+        delta_0, phi, gamma, xi, zeta, gamma_pi, gamma_star_pi = self._get_parameters(
+            **kwargs
+        )
 
         # Numerical stability for pi calculation
-        linear_comb = delta_0 + delta_1 * phi
+        seas = [
+            gamma_pi[i] * np.cos(2 * np.pi * (i + 1) * t / 365.25)
+            + gamma_star_pi[i] * np.sin(2 * np.pi * (i + 1) * t / 365.25)
+            for i in range(5)
+        ]
+        linear_comb = delta_0 + np.sum(seas)
         # Use log-exp trick for numerical stability
         pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
@@ -44,11 +55,20 @@ class ZAGB2LogLinkDistribution(Distribution):
                 * np.log(1 + (y / np.exp(phi)) ** np.exp(-gamma))
             )
 
-    def score(self, y, **kwargs):
-        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+    def score(self, y, t, **kwargs):
+        delta_0, phi, gamma, xi, zeta, gamma_pi, gamma_star_pi = self._get_parameters(
+            **kwargs
+        )
 
-        # Numerical stability for pi calculation
-        linear_comb = delta_0 + delta_1 * phi
+        # seasonality for pi
+
+        seas = [
+            gamma_pi[i] * np.cos(2 * np.pi * (i + 1) * t / 365.25)
+            + gamma_star_pi[i] * np.sin(2 * np.pi * (i + 1) * t / 365.25)
+            for i in range(5)
+        ]
+        linear_comb = delta_0 + np.sum(seas)
+        # Use log-exp trick for numerical stability
         pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
         # Initialize scores for the 4 parameters we want (phi, gamma, xi, zeta)
@@ -57,15 +77,11 @@ class ZAGB2LogLinkDistribution(Distribution):
         dL_dxi = 0.0
         dL_dzeta = 0.0
 
-        if y <= 0:
-            dL_dphi = -delta_1 * pi
-        else:
+        if y > 0:
             z = (y / np.exp(phi)) ** np.exp(-gamma)
-            dL_dphi = (
-                delta_1 * (1 - pi)  # Zero-inflation component
-                + (np.exp(xi) + np.exp(zeta)) * np.exp(-gamma) * z / (1 + z)
-                - np.exp(xi - gamma)
-            )
+            dL_dphi = (np.exp(xi) + np.exp(zeta)) * np.exp(-gamma) * z / (
+                1 + z
+            ) - np.exp(xi - gamma)
 
             dL_dgamma = (
                 -1
@@ -97,7 +113,7 @@ class ZAGB2LogLinkDistribution(Distribution):
         # Return identity matrix as placeholder
         return np.eye(4)
 
-    def cdf(self, y, **kwargs):
+    def cdf(self, y, t, **kwargs):
         """
         CDF for Zero-Augmented GB2 distribution.
 
@@ -107,11 +123,18 @@ class ZAGB2LogLinkDistribution(Distribution):
             (1 - π) + π * F_GB2(y) if y > 0
         }
         """
-        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+        delta_0, phi, gamma, xi, zeta, gamma_pi, gamma_star_pi = self._get_parameters(
+            **kwargs
+        )
 
-        # π = logistic(delta_0 + delta_1 * exp(phi))
-        linear_comb = delta_0 + delta_1 * phi
-        pi = expit(linear_comb)  # numerically stable sigmoid
+        seas = [
+            gamma_pi[i] * np.cos(2 * np.pi * (i + 1) * t / 365.25)
+            + gamma_star_pi[i] * np.sin(2 * np.pi * (i + 1) * t / 365.25)
+            for i in range(5)
+        ]
+        linear_comb = delta_0 + np.sum(seas)
+
+        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
         if y <= 0:
             return 1 - pi
@@ -128,15 +151,21 @@ class ZAGB2LogLinkDistribution(Distribution):
 
             return (1 - pi) + pi * gb2_cdf
 
-    def mean(self, **kwargs):
+    def mean(self, t, **kwargs):
         """Return the mean of the zero-inflated distribution"""
-        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+        delta_0, phi, gamma, xi, zeta, gamma_pi, gamma_star_pi = self._get_parameters(
+            **kwargs
+        )
 
         if np.exp(zeta) <= np.exp(gamma):
             raise ValueError("Mean is undefined when zeta <= gamma")
 
-        # Numerical stability for pi
-        linear_comb = delta_0 + delta_1 * phi
+        seas = [
+            gamma_pi[i] * np.cos(2 * np.pi * (i + 1) * t / 365.25)
+            + gamma_star_pi[i] * np.sin(2 * np.pi * (i + 1) * t / 365.25)
+            for i in range(5)
+        ]
+        linear_comb = delta_0 + np.sum(seas)
         pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
         # GB2 component mean
@@ -151,7 +180,7 @@ class ZAGB2LogLinkDistribution(Distribution):
 
         return gb2_mean, expected_value
 
-    def variance(self, **kwargs):
+    def variance(self, t, **kwargs):
         """Return the variance of the zero-inflated distribution"""
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
@@ -159,9 +188,13 @@ class ZAGB2LogLinkDistribution(Distribution):
             raise ValueError("Variance is undefined when zeta <= gamma")
 
         # Numerical stability for pi
-        linear_comb = delta_0 + delta_1 * phi
-        max_val = np.maximum(0, linear_comb)
-        pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
+        seas = [
+            gamma_pi[i] * np.cos(2 * np.pi * (i + 1) * t / 365.25)
+            + gamma_star_pi[i] * np.sin(2 * np.pi * (i + 1) * t / 365.25)
+            for i in range(5)
+        ]
+        linear_comb = delta_0 + np.sum(seas)
+        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
 
         # GB2 component moments
         ex = (
