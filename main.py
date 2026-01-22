@@ -1,5 +1,5 @@
 from GASModels.components.trend import Trend, TrendTypes
-from GASModels.dynamics import Dynamics
+from GASModels.dynamics.dynamics import Dynamics
 from scipy.optimize import minimize
 
 

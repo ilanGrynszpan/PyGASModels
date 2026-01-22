@@ -30,7 +30,8 @@ class GB2LogLinkDistribution(Distribution):
             + (np.exp(xi - gamma) - 1) * np.log(y / np.exp(phi))
             - phi
             - np.log(beta(np.exp(xi), np.exp(zeta)))
-            - (np.exp(xi) + np.exp(zeta)) * (1 + (y / np.exp(phi)) ** (np.exp(-gamma)))
+            - (np.exp(xi) + np.exp(zeta))
+            * np.log(1 + (y / np.exp(phi)) ** (np.exp(-gamma)))
         )
 
         return log_pdf
@@ -133,21 +134,10 @@ class GB2LogLinkDistribution(Distribution):
     def cdf(self, y, **kwargs):
         phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
-        # Correct parameter mapping based on your specification:
-        a = np.exp(-gamma)  # a = exp(-f2) where f2 is gamma
-        b = np.exp(phi)  # b = exp(phi)
-        p = xi  # p = xi (directly)
-        q = zeta  # q = zeta (directly)
-
-        # GB2 CDF: F(y) = I_{z/(1+z)}(a, b) where z = (y/b)^p
-        # Note: In standard GB2 notation, the scale parameter is typically 'b'
-        z = (y / b) ** p
-
-        # Regularize to avoid numerical issues
-        z = np.maximum(z, 1e-16)  # Ensure positive
+        a = np.exp(xi)
+        b = np.exp(zeta)
+        p = np.exp(-gamma)
+        sigma = exp(phi)
+        z = (y / sigma) ** p
         u = z / (1 + z)
-        u = np.clip(u, 1e-16, 1 - 1e-16)  # Keep within (0,1) for betainc
-
-        gb2_cdf = betainc(a, q, u)  # Note: using 'q' as the second parameter
-
-        return gb2_cdf
+        F = betainc(a, b, u)
