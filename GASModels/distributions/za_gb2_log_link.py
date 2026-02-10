@@ -1,16 +1,13 @@
 import numpy as np
-import scipy.stats as stats
-from scipy.special import digamma, polygamma, beta
-from scipy.special import betainc, expit
+from scipy.special import digamma, beta, betainc, expit
 from GASModels.distributions.distribution import Distribution
 
 
 class ZAGB2LogLinkDistribution(Distribution):
     def __init__(self):
-        super().__init__("ZAGB2LogLink", 6)  # Changed to 6 parameters
+        super().__init__("ZAGB2LogLink", 6)
 
     def _get_parameters(self, **kwargs):
-        """Extract and transform parameters from kwargs"""
         delta_0 = kwargs.get("delta_0")
         delta_1 = kwargs.get("delta_1")
         phi = kwargs.get("phi")
@@ -18,165 +15,93 @@ class ZAGB2LogLinkDistribution(Distribution):
         xi = kwargs.get("xi")
         zeta = kwargs.get("zeta")
 
-        if any(param is None for param in [delta_0, delta_1, phi, gamma, xi, zeta]):
+        if any(v is None for v in [delta_0, delta_1, phi, gamma, xi, zeta]):
             raise ValueError("All ZA-GB2 parameters must be provided")
 
         return delta_0, delta_1, phi, gamma, xi, zeta
 
+    # =========================
+    # LOGPDF
+    # =========================
     def logpdf(self, y, **kwargs):
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
-        # Numerical stability for pi calculation
-        linear_comb = delta_0 + delta_1 * phi
-        # Use log-exp trick for numerical stability
-        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
+        pi = expit(delta_0 + delta_1 * phi)
 
         if y <= 0:
-            return np.log(1 - pi)
-        else:
-            return (
-                np.log(pi)
-                - gamma
-                + (np.exp(xi - gamma) - 1) * (np.log(y / np.exp(phi)))
-                - phi
-                - np.log(beta(np.exp(xi), np.exp(zeta)))
-                - (np.exp(xi) + np.exp(zeta))
-                * np.log(1 + (y / np.exp(phi)) ** np.exp(-gamma))
-            )
+            return np.log(1 - pi + 1e-12)
 
+        a = np.exp(xi)
+        b = np.exp(zeta)
+        p = np.exp(-gamma)
+        sigma = np.exp(phi)
+
+        z = (y / sigma) ** p
+
+        log_gb2 = (
+            np.log(p)
+            - np.log(sigma)
+            + (a * p - 1) * np.log(y / sigma)
+            - np.log(beta(a, b))
+            - (a + b) * np.log(1 + z)
+        )
+
+        return np.log(pi + 1e-12) + log_gb2
+
+    # =========================
+    # SCORE
+    # =========================
     def score(self, y, **kwargs):
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
-        # Numerical stability for pi calculation
-        linear_comb = delta_0 + delta_1 * phi
-        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
+        pi = expit(delta_0 + delta_1 * phi)
 
-        # Initialize scores for the 4 parameters we want (phi, gamma, xi, zeta)
-        dL_dphi = 0.0
-        dL_dgamma = 0.0
-        dL_dxi = 0.0
-        dL_dzeta = 0.0
+        a = np.exp(xi)
+        b = np.exp(zeta)
+        p = np.exp(-gamma)
+        sigma = np.exp(phi)
 
         if y <= 0:
             dL_dphi = -delta_1 * pi
-        else:
-            z = (y / np.exp(phi)) ** np.exp(-gamma)
-            dL_dphi = (
-                delta_1 * (1 - pi)  # Zero-inflation component
-                + (np.exp(xi) + np.exp(zeta)) * np.exp(-gamma) * z / (1 + z)
-                - np.exp(xi - gamma)
-            )
+            return np.array([dL_dphi, 0.0, 0.0, 0.0])
 
-            dL_dgamma = (
-                -1
-                - np.exp(xi - gamma) * np.log(y / np.exp(phi))
-                + (np.exp(xi) + np.exp(zeta))
-                * np.exp(-gamma)
-                * (z / (1 + z))
-                * (np.log(y / np.exp(phi)))
-            )
+        z = (y / sigma) ** p
+        logy = np.log(y / sigma)
 
-            dL_dxi = (
-                (np.exp(xi - gamma) * np.log(y / np.exp(phi)))
-                - np.exp(xi)
-                * (digamma(np.exp(xi)) - digamma(np.exp(xi) + np.exp(zeta)))
-                - np.log(1 + z) * np.exp(xi)
-            )
+        # φ-score
+        dL_dphi = delta_1 * (1 - pi) + p * ((a + b) * z / (1 + z) - a)
 
-            dL_dzeta = -np.exp(zeta) * (
-                digamma(np.exp(zeta)) - digamma(np.exp(xi) + np.exp(zeta))
-            ) - np.log(1 + z) * np.exp(zeta)
+        # γ-score
+        dL_dgamma = -1 - p * logy * (a - (a + b) * z / (1 + z))
+
+        # ξ-score
+        dL_dxi = a * p * logy - a * (digamma(a) - digamma(a + b)) - a * np.log(1 + z)
+
+        # ζ-score
+        dL_dzeta = -b * (digamma(b) - digamma(a + b)) - b * np.log(1 + z)
 
         return np.array([dL_dphi, dL_dgamma, dL_dxi, dL_dzeta])
 
-    def fisher_information(self, **kwargs):
-        """
-        Fisher information matrix - placeholder for ZA-GB2
-        This is complex for zero-inflated models
-        """
-        # Return identity matrix as placeholder
-        return np.eye(4)
-
+    # =========================
+    # CDF (for PIT!)
+    # =========================
     def cdf(self, y, **kwargs):
-        """
-        CDF for Zero-Augmented GB2 distribution.
-
-        F(y) = {
-            0                   if y < 0
-            1 - π               if y = 0
-            (1 - π) + π * F_GB2(y) if y > 0
-        }
-        """
         delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
-        # π = logistic(delta_0 + delta_1 * exp(phi))
-        linear_comb = delta_0 + delta_1 * phi
-        pi = expit(linear_comb)  # numerically stable sigmoid
+        pi = expit(delta_0 + delta_1 * phi)
 
         if y <= 0:
             return 1 - pi
-        else:
-            # GB2 parameters
-            sigma = np.exp(phi)
-            p = np.exp(-gamma)
-            a = np.exp(xi)
-            b = np.exp(zeta)
 
-            # GB2 CDF = I_{z/(1+z)}(a, b), with z = (y/σ)^p
-            z = (y / sigma) ** p
-            gb2_cdf = betainc(a, b, z / (1 + z))
+        a = np.exp(xi)
+        b = np.exp(zeta)
+        p = np.exp(-gamma)
+        sigma = np.exp(phi)
 
-            return (1 - pi) + pi * gb2_cdf
+        z = (y / sigma) ** p
+        u = z / (1 + z)
+        u = np.clip(u, 1e-12, 1 - 1e-12)
 
-    def mean(self, **kwargs):
-        """Return the mean of the zero-inflated distribution"""
-        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+        gb2_cdf = betainc(a, b, u)
 
-        if np.exp(zeta) <= np.exp(gamma):
-            raise ValueError("Mean is undefined when zeta <= gamma")
-
-        # Numerical stability for pi
-        linear_comb = delta_0 + delta_1 * phi
-        pi = np.exp(linear_comb) / (1 + np.exp(linear_comb))
-
-        # GB2 component mean
-        gb2_mean = (
-            np.exp(phi)
-            * beta(np.exp(xi) + np.exp(gamma), np.exp(zeta) - np.exp(gamma))
-            / beta(np.exp(xi), np.exp(zeta))
-        )
-
-        # Zero-inflated mean: pi * GB2_mean + (1-pi)*0 = pi * GB2_mean
-        expected_value = pi * gb2_mean
-
-        return gb2_mean, expected_value
-
-    def variance(self, **kwargs):
-        """Return the variance of the zero-inflated distribution"""
-        delta_0, delta_1, phi, gamma, xi, zeta = self._get_parameters(**kwargs)
-
-        if np.exp(zeta) <= np.exp(gamma):
-            raise ValueError("Variance is undefined when zeta <= gamma")
-
-        # Numerical stability for pi
-        linear_comb = delta_0 + delta_1 * phi
-        max_val = np.maximum(0, linear_comb)
-        pi = np.exp(linear_comb - max_val) / (1 + np.exp(linear_comb - max_val))
-
-        # GB2 component moments
-        ex = (
-            np.exp(phi)
-            * beta(np.exp(xi) + np.exp(gamma), np.exp(zeta) - np.exp(gamma))
-            / beta(np.exp(xi), np.exp(zeta))
-        )
-
-        ex2 = (
-            np.exp(phi) ** 2
-            * beta(np.exp(xi) + 2 * np.exp(gamma), np.exp(zeta) - 2 * np.exp(gamma))
-            / beta(np.exp(xi), np.exp(zeta))
-        )
-
-        # Zero-inflated variance: pi * E[X^2] - (pi * E[X])^2
-        variance = pi * ex2 - (pi * ex) ** 2
-
-        return variance
+        return (1 - pi) + pi * gb2_cdf
