@@ -141,3 +141,30 @@ class GB2LogLinkDistribution(Distribution):
         z = (y / sigma) ** p
         u = z / (1 + z)
         F = betainc(a, b, u)
+
+    def rvs(self, size=1, **kwargs):
+        """
+        Random sampling from GB2 distribution using Beta transformation.
+        """
+
+        phi, gamma, xi, zeta = self._get_parameters(**kwargs)
+
+        a = np.exp(xi)
+        b = np.exp(zeta)
+        p = np.exp(-gamma)
+        sigma = np.exp(phi)
+
+        # Draw from Beta
+        U = np.random.beta(a, b, size=size)
+
+        # Avoid numerical explosion near 1
+        eps = 1e-12
+        U = np.clip(U, eps, 1 - eps)
+
+        # Transform
+        Y = sigma * (U / (1 - U)) ** (1 / p)
+
+        if size == 1:
+            return Y.item()
+
+        return Y
