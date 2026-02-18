@@ -65,34 +65,19 @@ class GB2LogLinkDistribution(Distribution):
 
         return np.array([dL_dphi, dL_dgamma, dL_dxi, dL_dzeta])
 
-    def fisher_information(self, **kwargs):
+    def fisher_information(self, y, **kwargs):
         """
-        Fisher information matrix for parameters [alpha, lambda_]
+        Outer-product approximation of the Fisher information matrix:
+        I_t ≈ s_t s_t'
         """
-        alpha, lambda_, shape, scale = self._get_parameters(**kwargs)
 
-        # For Gamma(k, θ), the Fisher information in terms of (k, θ) is:
-        # I(k,k) = polygamma(1, k)  (trigamma function)
-        # I(k,θ) = 1/θ
-        # I(θ,θ) = k/θ²
+        # Get score vector
+        s = self.score(y, **kwargs)
 
-        trigamma_shape = polygamma(1, shape)
-        I_kk = trigamma_shape
-        I_ktheta = 1 / scale
-        I_thetatheta = shape / (scale**2)
+        # Outer product
+        I = np.outer(s, s)
 
-        # Transform Fisher information from (k, θ) space to (alpha, lambda_) space
-        # Using the Jacobian of the transformation
-        # J = [[dk/dalpha, dk/dlambda], [dθ/dalpha, dθ/dlambda]] = [[k, 0], [-θ, θ]]
-        J = np.array([[shape, 0], [-scale, scale]])
-
-        # Original Fisher information matrix in (k, θ) space
-        I_original = np.array([[I_kk, I_ktheta], [I_ktheta, I_thetatheta]])
-
-        # Transform: I_new = J^T @ I_original @ J
-        I_transformed = J.T @ I_original @ J
-
-        return I_transformed
+        return I
 
     def mean(self, **kwargs):
         """Return the mean of the distribution: exp(lambda)"""
