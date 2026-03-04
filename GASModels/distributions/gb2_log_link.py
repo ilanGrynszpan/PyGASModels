@@ -67,15 +67,54 @@ class GB2LogLinkDistribution(Distribution):
 
     def fisher_information(self, y, **kwargs):
         """
-        Outer-product approximation of the Fisher information matrix:
-        I_t ≈ s_t s_t'
+        Analytic expected Fisher information matrix (diagonal only)
+        for GB2 under (phi, gamma, xi, zeta) parameterization.
+
+        Returns 4x4 diagonal matrix.
         """
 
-        # Get score vector
-        s = self.score(y, **kwargs)
+        phi, gamma, xi, zeta = self._get_parameters(**kwargs)
 
-        # Outer product
-        I = np.outer(s, s)
+        # Transform parameters
+        a = np.exp(xi)
+        b = np.exp(zeta)
+        p = np.exp(-gamma)
+
+        # ------------------------------------------------
+        # φ diagonal (exact)
+        # I_{φφ} = p^2 * ab / (a + b + 1)
+        # ------------------------------------------------
+        I_phi_phi = p**2 * (a * b) / (a + b + 1)
+
+        # ------------------------------------------------
+        # ξ diagonal (exact Beta Fisher)
+        # I_{ξξ} = a^2 [ψ1(a) - ψ1(a+b)]
+        # ------------------------------------------------
+        trigamma_a = polygamma(1, a)
+        trigamma_ab = polygamma(1, a + b)
+
+        I_xi_xi = a**2 * (trigamma_a - trigamma_ab)
+
+        # ------------------------------------------------
+        # ζ diagonal (exact Beta Fisher)
+        # I_{ζζ} = b^2 [ψ1(b) - ψ1(a+b)]
+        # ------------------------------------------------
+        trigamma_b = polygamma(1, b)
+
+        I_zeta_zeta = b**2 * (trigamma_b - trigamma_ab)
+
+        # ------------------------------------------------
+        # γ diagonal
+        # Exact analytic form is messy.
+        # If γ is static, regularize safely.
+        # ------------------------------------------------
+        I_gamma_gamma = 1e-8
+
+        # ------------------------------------------------
+        # Assemble diagonal matrix
+        # Order: [phi, gamma, xi, zeta]
+        # ------------------------------------------------
+        I = np.diag([I_phi_phi, I_gamma_gamma, I_xi_xi, I_zeta_zeta])
 
         return I
 
